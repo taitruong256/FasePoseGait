@@ -143,12 +143,16 @@ Results and models are available in the [model zoo](docs/model_zoo.md). [[Google
 
 If you find this project useful in your research, please consider citing: 
 ```
-@article{meng2023fastposegait,
-  title={FastPoseGait: A Toolbox and Benchmark for Efficient Pose-based Gait Recognition},
-  author={Meng, Shibei and Fu, Yang and Hou, Saihui and Cao, Chunshui and Liu, Xu and Huang, Yongzhen},
-  journal={arXiv preprint arXiv:2309.00794},
-  year={2023}
-}
+@ARTICLE{11029177,
+  author={Meng, Shibei and Fu, Yang and Hou, Saihui and Hu, Xuecai and Cao, Chunshui and Liu, Xu and Huang, Yongzhen},
+  journal={IEEE Transactions on Pattern Analysis and Machine Intelligence}, 
+  title={From FastPoseGait to GPGait++: Bridging the Past and Future for Pose-Based Gait Recognition}, 
+  year={2025},
+  volume={47},
+  number={9},
+  pages={8231-8248},
+  keywords={Gait recognition;Training;Feature extraction;Data mining;Cameras;Benchmark testing;Artificial intelligence;Transformers;Three-dimensional displays;Semantics;Gait recognition;human pose;generalization ability;biometric authentication;graph convolutional network},
+  doi={10.1109/TPAMI.2025.3577594}}
 ```
 
 
