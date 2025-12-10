@@ -14,7 +14,7 @@ This repository is provided by [BNU-IVC](https://github.com/BNU-IVC) and support
 </div>
 
 ## News!
-* [Jun 2025] 🔥🔥🔥 Our paper [From FastPoseGait to GPGait++: Bridging the Past and Future for Pose-based Gait Recognition]() is accepted by **TPAMI 2025**! Paper and code coming soon.
+* [Jun 2025] 🔥🔥🔥 Our paper [From FastPoseGait to GPGait++: Bridging the Past and Future for Pose-based Gait Recognition](https://ieeexplore.ieee.org/document/11029177) is accepted by **TPAMI 2025**! Checkout [paper](https://ieeexplore.ieee.org/document/11029177) and [code](https://github.com/BNU-IVC/FastPoseGait/tree/main/configs/gpgait++).
 * [Jul 2024] 🔥🔥🔥 Our paper [Cut out the Middleman: Revisiting Pose-based Gait Recognition](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/04501.pdf) is accepted by **ECCV 2024**! Checkout [paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/04501.pdf) and [code](https://github.com/BNU-IVC/FastPoseGait/tree/main/configs/gaitheat).
 * [Nov 2023] [SUSTech1K](https://lidargait.github.io/) and [CCPG](https://github.com/BNU-IVC/CCPG) have been supported in our project! The result of GPGait on these two benchmarks can be found in [Model Zoo](docs/model_zoo.md).
 * [Sep 2023] Our technical report [FastPoseGait: A Toolbox and Benchmark for Efficient Pose-based Gait Recognition](https://arxiv.org/abs/2309.00794) and the code of <i>Improved Version</i> are released! Check out [Model Zoo](docs/model_zoo.md).
@@ -47,7 +47,7 @@ This repository is provided by [BNU-IVC](https://github.com/BNU-IVC) and support
 - [x] [CCPG (CVPR 2023)](https://github.com/BNU-IVC/CCPG)
 
 ## TODO
-- [ ] Release the training code of GPGait++
+- [x] Release the training code of GPGait++
 - [x] Release the training code of GaitHeat
 - [ ] Release model ckpts
 
@@ -143,12 +143,16 @@ Results and models are available in the [model zoo](docs/model_zoo.md). [[Google
 
 If you find this project useful in your research, please consider citing: 
 ```
-@article{meng2023fastposegait,
-  title={FastPoseGait: A Toolbox and Benchmark for Efficient Pose-based Gait Recognition},
-  author={Meng, Shibei and Fu, Yang and Hou, Saihui and Cao, Chunshui and Liu, Xu and Huang, Yongzhen},
-  journal={arXiv preprint arXiv:2309.00794},
-  year={2023}
-}
+@ARTICLE{11029177,
+  author={Meng, Shibei and Fu, Yang and Hou, Saihui and Hu, Xuecai and Cao, Chunshui and Liu, Xu and Huang, Yongzhen},
+  journal={IEEE Transactions on Pattern Analysis and Machine Intelligence}, 
+  title={From FastPoseGait to GPGait++: Bridging the Past and Future for Pose-Based Gait Recognition}, 
+  year={2025},
+  volume={47},
+  number={9},
+  pages={8231-8248},
+  keywords={Gait recognition;Training;Feature extraction;Data mining;Cameras;Benchmark testing;Artificial intelligence;Transformers;Three-dimensional displays;Semantics;Gait recognition;human pose;generalization ability;biometric authentication;graph convolutional network},
+  doi={10.1109/TPAMI.2025.3577594}}
 ```
 
 
