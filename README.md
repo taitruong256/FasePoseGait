@@ -49,7 +49,7 @@ This repository is provided by [BNU-IVC](https://github.com/BNU-IVC) and support
 ## TODO
 - [x] Release the training code of GPGait++
 - [x] Release the training code of GaitHeat
-- [ ] Release model ckpts
+- [x] Release model ckpts
 
 ## Getting Started
 
@@ -127,6 +127,8 @@ You can run commands in [dist_test.sh](dist_test.sh) for testing different model
 
 ## Model Zoo
 Results and models are available in the [model zoo](docs/model_zoo.md). [[Google Drive]](https://drive.google.com/drive/folders/1jsQ5cZcZ5YXVvzSvyEETlN6l1B7T6paD?usp=drive_link) [[百度网盘 提取码s4jj]](https://pan.baidu.com/s/15UUKcqf6LoPBEd3123i-3g?pwd=s4jj)
+
+Models of **GPGait++** can be downloaded in [[Google Drive]](https://drive.google.com/drive/folders/1NjY0gK89aXO4lFM_YyDiE336njNctHOI?usp=sharing) [[百度网盘 提取码6p68]](https://pan.baidu.com/s/1oSX6rBwQ9Yob7VjSfePjRQ?pwd=6p68)
 
 ## Acknowledgement
 * GaitGraph/GaitGraph2: [Torben Teepe](https://scholar.google.com/citations?user=TWJuTroAAAAJ&hl=zh-CN&oi=sra)
