@@ -10,7 +10,7 @@ evaluator_cfg:
   enable_float16: false
   restore_ckpt_strict: true
   restore_hint: 150000
-  save_name: PoseSet
+  save_name: GPGait_PlusPlus
   sampler:
     batch_size: 8 #should same to num_gpus
     sample_type: all_ordered

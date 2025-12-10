@@ -440,8 +440,6 @@ class HOD_MultiInput(object):
         return data_new
 
 
-
-
 class Affine(object):
     '''
     Make the spine of skeleton vertical to the ground
@@ -451,8 +449,7 @@ class Affine(object):
     xx = x * cos - y * sin + x0 * (1-cos) + y0 * sin
     yy = x * sin + y * cos + y0 * (1-cos) - x0 * sin
     '''
-
-    def __init__(self,fi=0):
+    def __init__(self,fi = 0):
         self.fi = fi
 
     def __call__(self, data):
@@ -473,9 +470,18 @@ class Affine(object):
         theta = np.expand_dims(theta, axis=-1)
         neck_x = np.expand_dims(neck_x, axis=-1)
         neck_y = np.expand_dims(neck_y, axis=-1)
-        # if theta > self.fi:
-        kp[..., 0] = np.cos(theta) * kp[..., 0] - np.sin(theta) * kp[..., 1] + (1 - np.cos(theta)) * neck_x + np.sin(theta) * neck_y
-        kp[..., 1] = np.sin(theta) * kp[..., 0] + np.cos(theta) * kp[..., 1] + (1 - np.cos(theta)) * neck_y - np.sin(theta) * neck_x
+
+        mask = np.where(np.abs(theta) > self.fi)[0]
+        old_x = kp[mask, :, 0]
+        old_y = kp[mask, :, 1]
+        if len(mask) != 0:
+            theta_rot = theta[mask]
+            neck_x = neck_x[mask]
+            neck_y = neck_y[mask]
+            new_x = np.cos(theta_rot) * old_x - np.sin(theta_rot) * old_y + (1 - np.cos(theta_rot)) * neck_x + np.sin(theta_rot) * neck_y
+            new_y = np.sin(theta_rot) * old_x + np.cos(theta_rot) * old_y + (1 - np.cos(theta_rot)) * neck_y - np.sin(theta_rot) * neck_x
+            kp[mask, :, 0] = new_x
+            kp[mask, :, 1] = new_y
         data = kp
         return data
 

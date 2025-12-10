@@ -1,7 +1,7 @@
 data_cfg:
   dataset_name: CASIA-B
   dataset_partition: ./datasets/CASIA-B/CASIA-B.json
-  dataset_root: /data_1/mengshibei/DATA/0_DatasetPose/CASIA-B/CASIA-B_HRNet
+  dataset_root: 
   test_dataset_name: CASIA-B
   num_workers: 0
   remove_no_gallery: false
@@ -9,7 +9,7 @@ data_cfg:
 evaluator_cfg:
   enable_float16: false
   restore_ckpt_strict: true
-  restore_hint: /data_1/mengshibei/CODE/TPAMI/GPGait-TCN/PoseTCN-30frames-40000.pt
+  restore_hint: 40000
   save_name: GPGait_PlusPlus
   sampler:
     batch_size: 4 # should be same as num_gpus
