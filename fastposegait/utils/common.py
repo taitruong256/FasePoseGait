@@ -195,6 +195,12 @@ def get_ddp_module(module, **kwargs):
     if len(list(module.parameters())) == 0:
         # for the case that loss module has not parameters.
         return module
+    if (not torch.distributed.is_available()
+            or not torch.distributed.is_initialized()
+            or torch.distributed.get_world_size() == 1):
+        # Single-process runs do not need DDP wrapping and can fail on models
+        # that intentionally leave auxiliary parameters unused in the loss.
+        return module
     device = torch.cuda.current_device()
     module = DDPPassthrough(module, device_ids=[device], output_device=device,
                             find_unused_parameters=False, **kwargs)

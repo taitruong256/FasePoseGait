@@ -1,6 +1,6 @@
 data_cfg:
   dataset_name: CASIA-B
-  dataset_root: your_path
+  dataset_root: /home/HardDisk/Tai/CASIA-B_HRNet
   dataset_partition: ./datasets/CASIA-B/CASIA-B.json
   test_dataset_name: CASIA-B
   num_workers: 1
@@ -14,7 +14,7 @@ evaluator_cfg:
   save_name: ProtoGCN
   eval_func: evaluate_indoor_dataset
   sampler:
-    batch_size: 4
+    batch_size: 1 
     sample_type: all_ordered
     type: InferenceSampler
   metric: euc
@@ -99,8 +99,8 @@ trainer_cfg:
   sampler:
     batch_shuffle: false
     batch_size:
-      - 4
-      - 16
+      - 2 
+      - 8
     frames_num_fixed: 60
     frames_num_max: 50
     frames_num_min: 25

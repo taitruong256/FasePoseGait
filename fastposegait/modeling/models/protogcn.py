@@ -91,7 +91,7 @@ class MSTCN(nn.Module):
                     nn.Conv2d(in_channels, branch_c, kernel_size=1, stride=(stride, 1))
                 )
                 continue
-            if isinstance(cfg, tuple) and cfg[0] == 'max':
+            if isinstance(cfg, (tuple, list)) and cfg[0] == 'max':
                 branches.append(
                     nn.Sequential(
                         nn.Conv2d(in_channels, branch_c, kernel_size=1),
@@ -101,7 +101,7 @@ class MSTCN(nn.Module):
                     )
                 )
                 continue
-            if isinstance(cfg, tuple):
+            if isinstance(cfg, (tuple, list)):
                 branches.append(
                     nn.Sequential(
                         nn.Conv2d(in_channels, branch_c, kernel_size=1),
@@ -361,12 +361,13 @@ class ProtoGCNBackbone(nn.Module):
         self.gcn = nn.ModuleList(modules)
 
         out_channels = base_channels
-        self.post = nn.Conv2d(out_channels, out_channels, 1)
-        self.bn = nn.BatchNorm2d(out_channels)
+        self.graph_channels = self.gcn[-1].gcn.mid_channels * self.gcn[-1].gcn.num_subsets
+        self.post = nn.Conv2d(self.graph_channels, self.graph_channels, 1)
+        self.bn = nn.BatchNorm2d(self.graph_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.prn = PrototypeReconstructionNetwork(out_channels, self.num_prototype)
 
         self.out_channels = out_channels
+        self.prn = PrototypeReconstructionNetwork(self.graph_channels, self.num_prototype)
         self.view_logits = None
 
     def init_weights(self):
@@ -399,7 +400,7 @@ class ProtoGCNBackbone(nn.Module):
                 view_logits_list.append(view_logits)
 
         x = x.reshape((n, m) + x.shape[1:])
-        c_graph = x.size(2)
+        c_graph = get_graph[-1].size(1)
 
         graph = get_graph[-1]
         graph = graph.view(n, m, c_graph, v, v).mean(1).view(n, c_graph, v * v)
@@ -555,6 +556,7 @@ class ProtoGCN(BaseModel):
             'training_feat': {
                 'triplet': {'embeddings': pooled_feat.unsqueeze(-1), 'labels': labs},
                 'softmax': {'logits': logits.unsqueeze(-1), 'labels': labs},
+                'graph_recon': reconstructed_graph.mean() * 0.0,
             },
             'visual_summary': {
                 'image/pose': pose.view(n * t, m, v, c).contiguous(),
