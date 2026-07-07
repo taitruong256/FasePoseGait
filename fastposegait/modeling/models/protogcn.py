@@ -562,7 +562,11 @@ class ProtoGCN(BaseModel):
             'training_feat': {
                 'triplet': {'embeddings': pooled_feat.unsqueeze(-1), 'labels': labs},
                 'softmax': {'logits': logits.unsqueeze(-1), 'labels': labs},
-                'graph_recon': reconstructed_graph.mean() * 0.0,
+                'csc': {
+                    'features': reconstructed_graph,
+                    'labels': labs,
+                    'logits': logits,
+                },
             },
             'visual_summary': {},
             'inference_feat': {
