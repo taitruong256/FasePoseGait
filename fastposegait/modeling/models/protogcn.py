@@ -146,6 +146,7 @@ class UnitGCN(nn.Module):
         in_channels,
         out_channels,
         A,
+        use_view_branch=True,
         view_num=11,
         ratio=0.125,
         intra_act='softmax',
@@ -156,6 +157,7 @@ class UnitGCN(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.num_subsets = A.size(0)
+        self.use_view_branch = use_view_branch
         self.view_num = view_num
         self.ratio = ratio
         self.mid_channels = max(1, int(ratio * out_channels))
@@ -170,11 +172,12 @@ class UnitGCN(nn.Module):
             nn.ReLU(inplace=True),
         )
         self.post = nn.Conv2d(self.mid_channels * self.num_subsets, out_channels, 1, bias=False)
-        self.view_conv = nn.Conv2d(in_channels, self.mid_channels * self.num_subsets, 1, bias=False)
-        self.view_gap = nn.AdaptiveAvgPool2d(1)
-        self.view_fc = nn.Linear(self.mid_channels * self.num_subsets, view_num)
-        self.view_softmax = nn.Softmax(dim=-1)
-        self.view_mats = nn.Parameter(A.clone().unsqueeze(0).repeat(view_num, 1, 1, 1))
+        if self.use_view_branch:
+            self.view_conv = nn.Conv2d(in_channels, self.mid_channels * self.num_subsets, 1, bias=False)
+            self.view_gap = nn.AdaptiveAvgPool2d(1)
+            self.view_fc = nn.Linear(self.mid_channels * self.num_subsets, view_num)
+            self.view_softmax = nn.Softmax(dim=-1)
+            self.view_mats = nn.Parameter(A.clone().unsqueeze(0).repeat(view_num, 1, 1, 1))
 
         self.alpha = nn.Parameter(torch.zeros(self.num_subsets))
         self.beta = nn.Parameter(torch.zeros(self.num_subsets))
@@ -194,16 +197,20 @@ class UnitGCN(nn.Module):
         n, c, t, v = x.shape
         res = self.down(x)
 
-        view_feat = self.view_gap(self.view_conv(x)).view(n, -1)
-        view_logits = self.view_fc(view_feat)
-        view_prob = self.view_softmax(view_logits)
-        self.last_view_logits = view_logits
-        self.last_view_prob = view_prob
-
         A = self.A[None, :, None, None]
-        A_view = torch.einsum('nv,vkxy->nkxy', view_prob, self.view_mats)
-        A_view = A_view[:, :, None, None]
-        A = (A + A_view) / 2
+        if self.use_view_branch:
+            view_feat = self.view_gap(self.view_conv(x)).view(n, -1)
+            view_logits = self.view_fc(view_feat)
+            view_prob = self.view_softmax(view_logits)
+            self.last_view_logits = view_logits
+            self.last_view_prob = view_prob
+
+            A_view = torch.einsum('nv,vkxy->nkxy', view_prob, self.view_mats)
+            A_view = A_view[:, :, None, None]
+            A = (A + A_view) / 2
+        else:
+            self.last_view_logits = None
+            self.last_view_prob = None
 
         pre_x = self.pre(x).reshape(n, self.num_subsets, self.mid_channels, t, v)
         x1 = self.conv1(x).reshape(n, self.num_subsets, self.mid_channels, -1, v).mean(dim=-2, keepdim=True)
@@ -242,6 +249,7 @@ class ProtoGCNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, A, stride=1, residual=True, **kwargs):
         super().__init__()
         gcn_kwargs = {
+            'use_view_branch': kwargs.pop('use_view_branch', True),
             'view_num': kwargs.pop('view_num', 11),
             'ratio': kwargs.pop('gcn_ratio', kwargs.pop('ratio', 0.125)),
             'intra_act': kwargs.pop('gcn_intra_act', kwargs.pop('intra_act', 'softmax')),
@@ -303,6 +311,7 @@ class ProtoGCNBackbone(nn.Module):
             self.data_bn = nn.Identity()
 
         self.view_num = kwargs.pop('view_num', 11)
+        self.use_view_branch = kwargs.pop('use_view_branch', True)
         self.num_prototype = kwargs.pop('num_prototype', 100)
         self.tcn_ms_cfg = kwargs.pop('tcn_ms_cfg', ((3, 1), (3, 2), (3, 3), (3, 4), ('max', 3), '1x1'))
 
@@ -328,6 +337,7 @@ class ProtoGCNBackbone(nn.Module):
                     A.clone(),
                     1,
                     residual=False,
+                    use_view_branch=self.use_view_branch,
                     view_num=self.view_num,
                     tcn_ms_cfg=self.tcn_ms_cfg,
                     **lw_kwargs[0],
@@ -348,6 +358,7 @@ class ProtoGCNBackbone(nn.Module):
                     out_ch,
                     A.clone(),
                     stride,
+                    use_view_branch=self.use_view_branch,
                     view_num=self.view_num,
                     tcn_ms_cfg=self.tcn_ms_cfg,
                     **lw_kwargs[i - 1],
@@ -417,7 +428,7 @@ class ProtoGCNBackbone(nn.Module):
         reconstructed_graph = self.relu(self.bn(re_graph))
         reconstructed_graph = reconstructed_graph.mean(1).view(n, -1)
 
-        if len(view_logits_list) > 0:
+        if self.gcn[0].gcn.use_view_branch and len(view_logits_list) > 0:
             view_logits = torch.stack(view_logits_list, dim=0).mean(dim=0)
             view_logits = view_logits.view(n, m, -1).mean(dim=1)
             self.view_logits = view_logits
@@ -436,6 +447,7 @@ class ProtoGCN(BaseModel):
             graph_cfg['max_hop'] = model_cfg.get('max_hop', 3)
 
         self.view_num = model_cfg.get('view_num', 11)
+        self.use_view_branch = model_cfg.get('use_view_branch', True)
         self.view_loss_weight = model_cfg.get('view_loss_weight', 1.0)
         self.num_class = model_cfg['num_class']
         self.dropout = nn.Dropout(model_cfg.get('dropout', 0.0))
@@ -451,6 +463,7 @@ class ProtoGCN(BaseModel):
             data_bn_type=model_cfg.get('data_bn_type', 'VC'),
             num_person=model_cfg.get('num_person', 1),
             pretrained=model_cfg.get('pretrained', None),
+            use_view_branch=self.use_view_branch,
             view_num=self.view_num,
             num_prototype=model_cfg.get('num_prototype', 300),
             tcn_ms_cfg=model_cfg.get('tcn_ms_cfg', ((3, 1), (3, 2), (3, 3), (3, 4), ('max', 3), '1x1')),
@@ -547,11 +560,6 @@ class ProtoGCN(BaseModel):
         pooled_feat = self.dropout(pooled_feat)
         logits = self.classifier(pooled_feat)
 
-        view_logits = getattr(self.encoder, 'view_logits', None)
-        view_labels = self._extract_view_labels(views, device=labs.device)
-        if view_logits is not None and view_labels is None:
-            raise ValueError('View logits are available but view labels are missing.')
-
         retval = {
             'training_feat': {
                 'triplet': {'embeddings': pooled_feat.unsqueeze(-1), 'labels': labs},
@@ -566,7 +574,11 @@ class ProtoGCN(BaseModel):
             },
         }
 
-        if view_logits is not None and view_labels is not None:
+        view_logits = getattr(self.encoder, 'view_logits', None)
+        if self.use_view_branch and view_logits is not None:
+            view_labels = self._extract_view_labels(views, device=labs.device)
+            if view_labels is None:
+                raise ValueError('View logits are available but view labels are missing.')
             retval['training_feat']['view_softmax'] = {
                 'logits': view_logits.unsqueeze(-1),
                 'labels': view_labels,
