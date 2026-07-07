@@ -137,9 +137,25 @@ def clones(module, N):
 
 
 def config_loader(path):
-    with open(path, 'r') as stream:
+    config_path = os.path.abspath(path)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    with open(config_path, 'r') as stream:
         src_cfgs = yaml.safe_load(stream)
-    with open("./configs/default.yaml", 'r') as stream:
+
+    candidate_default_paths = [
+        os.path.join(os.path.dirname(config_path), '..', 'default.yaml'),
+        os.path.join(repo_root, 'configs', 'default.yaml'),
+        os.path.abspath(os.path.join(os.getcwd(), 'configs', 'default.yaml')),
+    ]
+    default_cfg_path = next((p for p in candidate_default_paths if os.path.exists(p)), None)
+    if default_cfg_path is None:
+        raise FileNotFoundError(
+            'Could not locate default config file. Tried: {}'.format(
+                ', '.join(candidate_default_paths)
+            )
+        )
+
+    with open(default_cfg_path, 'r') as stream:
         dst_cfgs = yaml.safe_load(stream)
     MergeCfgsDict(src_cfgs, dst_cfgs)
     return dst_cfgs

@@ -45,12 +45,12 @@ trainer_cfg:
   enable_float16: false
   with_test: false
   fix_BN: false
-  log_iter: 100
+  log_iter: 1
   restore_ckpt_strict: true
   optimizer_reset: false
   scheduler_reset: false
   restore_hint: 0
-  save_iter: 2000
+  save_iter: 20
   save_name: tmp
   sync_BN: true
   total_iter: 80000

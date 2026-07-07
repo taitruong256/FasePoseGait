@@ -41,6 +41,7 @@ model_cfg:
   in_channels: 3
   num_class: 74
   use_view_branch: false
+  enable_visual_summary: false
   view_num: 11
   view_loss_weight: 1.0
   num_prototype: 300
@@ -77,20 +78,20 @@ scheduler_cfg:
   max_lr: 0.001
   div_factor: 100
   final_div_factor: 1000.0
-  total_steps: 40
+  total_steps: 40000
   pct_start: 0.475
   scheduler: OneCycleLR
 
 trainer_cfg:
   enable_float16: false
-  log_iter: 1
+  log_iter: 100
   with_test: true
   restore_ckpt_strict: false
   restore_hint: 0
-  save_iter: 10
+  save_iter: 1000
   save_name: ProtoGCN
   sync_BN: false 
-  total_iter: 40
+  total_iter: 40000
   sampler:
     batch_shuffle: false
     batch_size:

@@ -416,14 +416,11 @@ class ProtoGCNBackbone(nn.Module):
         graph = get_graph[-1]
         graph = graph.view(n, m, c_graph, v, v).mean(1).view(n, c_graph, v * v)
 
-        reconstructed = []
-        for i in range(n):
-            the_graph = graph[i].permute(1, 0)
-            the_graph = self.prn(the_graph)
-            the_graph = the_graph.permute(1, 0).view(c_graph, v, v)
-            reconstructed.append(the_graph)
-
-        re_graph = torch.stack(reconstructed, dim=0)
+        # Run PRN on the whole batch at once; the original per-sample Python loop
+        # becomes a major bottleneck in FastPoseGait training.
+        re_graph = graph.permute(0, 2, 1).contiguous()
+        re_graph = self.prn(re_graph)
+        re_graph = re_graph.permute(0, 2, 1).contiguous().view(n, c_graph, v, v)
         re_graph = self.post(re_graph)
         reconstructed_graph = self.relu(self.bn(re_graph))
         reconstructed_graph = reconstructed_graph.mean(1).view(n, -1)
@@ -449,6 +446,7 @@ class ProtoGCN(BaseModel):
         self.view_num = model_cfg.get('view_num', 11)
         self.use_view_branch = model_cfg.get('use_view_branch', True)
         self.view_loss_weight = model_cfg.get('view_loss_weight', 1.0)
+        self.enable_visual_summary = model_cfg.get('enable_visual_summary', False)
         self.num_class = model_cfg['num_class']
         self.dropout = nn.Dropout(model_cfg.get('dropout', 0.0))
 
@@ -566,13 +564,13 @@ class ProtoGCN(BaseModel):
                 'softmax': {'logits': logits.unsqueeze(-1), 'labels': labs},
                 'graph_recon': reconstructed_graph.mean() * 0.0,
             },
-            'visual_summary': {
-                'image/pose': pose.view(n * t, m, v, c).contiguous(),
-            },
+            'visual_summary': {},
             'inference_feat': {
                 'embeddings': pooled_feat.unsqueeze(-1),
             },
         }
+        if self.enable_visual_summary:
+            retval['visual_summary']['image/pose'] = pose.view(n * t, m, v, c).contiguous()
 
         view_logits = getattr(self.encoder, 'view_logits', None)
         if self.use_view_branch and view_logits is not None:
