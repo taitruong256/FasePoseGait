@@ -2,13 +2,32 @@ import time
 import torch
 
 import numpy as np
-import torchvision.utils as vutils
 import os.path as osp
 from time import strftime, localtime
 
-from torch.utils.tensorboard import SummaryWriter
 from .common import is_list, is_tensor, ts2np, mkdir, Odict, NoOp
 import logging
+
+try:
+    import torchvision.utils as vutils
+except Exception:
+    vutils = None
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception:
+    SummaryWriter = None
+
+
+class _NoOpWriter:
+    def add_scalar(self, *args, **kwargs):
+        return None
+
+    def add_image(self, *args, **kwargs):
+        return None
+
+    def flush(self):
+        return None
 
 
 class MessageManager:
@@ -21,8 +40,11 @@ class MessageManager:
         self.iteration = iteration
         self.log_iter = log_iter
         mkdir(osp.join(save_path, "summary/"))
-        self.writer = SummaryWriter(
-            osp.join(save_path, "summary/"), purge_step=self.iteration)
+        if SummaryWriter is None:
+            self.writer = _NoOpWriter()
+        else:
+            self.writer = SummaryWriter(
+                osp.join(save_path, "summary/"), purge_step=self.iteration)
         self.init_logger(save_path, log_to_file)
 
     def init_logger(self, save_path, log_to_file):
@@ -54,9 +76,12 @@ class MessageManager:
 
     def flush(self):
         self.info_dict.clear()
-        self.writer.flush()
+        if self.writer is not None:
+            self.writer.flush()
 
     def write_to_tensorboard(self, summary):
+        if self.writer is None:
+            return
 
         for k, v in summary.items():
             module_name = k.split('/')[0]
@@ -67,8 +92,8 @@ class MessageManager:
             board_name = k.replace(module_name + "/", '')
             writer_module = getattr(self.writer, 'add_' + module_name)
             v = v.detach() if is_tensor(v) else v
-            v = vutils.make_grid(
-                v, normalize=True, scale_each=True) if 'image' in module_name else v
+            if 'image' in module_name and vutils is not None:
+                v = vutils.make_grid(v, normalize=True, scale_each=True)
             if module_name == 'scalar':
                 try:
                     v = v.mean()

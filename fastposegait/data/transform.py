@@ -3,7 +3,23 @@ import numpy as np
 import math
 from math import atan2, degrees, radians, cos, sin
 from utils import is_list, is_dict, get_valid_args
-import torchvision.transforms as T
+
+try:
+    import torchvision.transforms as T
+except Exception:
+    class _Compose:
+        def __init__(self, transforms):
+            self.transforms = transforms
+
+        def __call__(self, data):
+            for transform in self.transforms:
+                data = transform(data)
+            return data
+
+    class _TransformsModule:
+        Compose = _Compose
+
+    T = _TransformsModule()
 
 ####  Mean Data Normalization  ####
 class Sequence_level():

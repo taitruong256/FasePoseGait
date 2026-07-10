@@ -1,6 +1,9 @@
 from torch.nn import functional as F
 import torch.nn as nn
-from torchvision.models.resnet import BasicBlock, Bottleneck, ResNet
+try:
+    from torchvision.models.resnet import BasicBlock, Bottleneck, ResNet
+except Exception:
+    from .resnet_compat import BasicBlock, Bottleneck, ResNet
 from ..components.blocks import BasicConv2d
 
 
@@ -45,4 +48,3 @@ class ResNet9_layer2(ResNet):
         x = self.layer2(x)
 
         return x
-

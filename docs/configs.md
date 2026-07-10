@@ -39,6 +39,12 @@
 >  * Args
 >     * model : Model type, please refer to [Model Library](../fastposegait/modeling/models) for the supported values.
 >     * **others** : Please refer to the [Training Configuration File of Corresponding Model](../configs).
+
+>  * For a ProtoGCN-style gait model without classification head, use a config like:
+>    * `model: ProtoGCNTriplet`
+>    * `loss_cfg.type: TripletLoss`
+>    * `training_feat` should expose only `triplet`
+>    * no `softmax`, no PRN, no class-specific contrastive loss
 ----
 ### evaluator_cfg
 * Evaluator configuration
