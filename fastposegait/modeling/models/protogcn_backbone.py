@@ -3,6 +3,7 @@ import torch.nn as nn
 
 from ..base_model import BaseModel
 from ..graph import Graph
+from ..components import SeparateFCs, SeparateBNNecks
 
 EPS = 1e-4
 
@@ -236,9 +237,11 @@ class ProtoGCNTriplet(BaseModel):
         self.view_num = model_cfg.get("view_num", 11)
         self.embed_dim = model_cfg.get("embed_dim", 256)
         self.max_hop = model_cfg.get("max_hop", 2)
+        self.num_class = model_cfg.get("num_class", None)
 
         self.graph = Graph(joint_format=self.joint_format, max_hop=self.max_hop)
         A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
+        self.parts_num = self.graph.num_node
 
         self.data_bn = nn.BatchNorm1d(self.in_channels * A.size(1))
 
@@ -274,6 +277,12 @@ class ProtoGCNTriplet(BaseModel):
         self.backbone = nn.ModuleList(modules)
         self.out_channels = current_channels
         self.embed_proj = nn.Conv1d(self.out_channels, self.embed_dim, kernel_size=1)
+        if self.num_class is not None:
+            self.FCs = SeparateFCs(parts_num=self.parts_num, in_channels=self.embed_dim, out_channels=self.embed_dim)
+            self.BNNecks = SeparateBNNecks(parts_num=self.parts_num, in_channels=self.embed_dim, class_num=self.num_class)
+        else:
+            self.FCs = None
+            self.BNNecks = None
 
     def _reshape_input(self, x):
         if x.dim() == 4:
@@ -303,16 +312,24 @@ class ProtoGCNTriplet(BaseModel):
         pose = ipts[0]
 
         feat, last_graph = self.extract_feat(pose)
-        embed = feat
+        if self.BNNecks is not None:
+            embed_1 = self.FCs(feat)
+            embed_2, logits = self.BNNecks(embed_1)
+        else:
+            embed_1 = feat
+            embed_2 = feat
+            logits = None
 
         retval = {
             "training_feat": {
-                "triplet": {"embeddings": embed, "labels": labs},
+                "triplet": {"embeddings": embed_1, "labels": labs},
             },
             "visual_summary": {},
             "inference_feat": {
-                "embeddings": embed,
+                "embeddings": embed_2,
             },
         }
+        if logits is not None:
+            retval["training_feat"]["softmax"] = {"logits": logits, "labels": labs}
         self.last_graph = last_graph
         return retval

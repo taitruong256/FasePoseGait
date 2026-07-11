@@ -1,6 +1,6 @@
 data_cfg:
   dataset_name: CASIA-B
-  dataset_root: /home/HardDisk/Tai/CASIA-B_HRNet
+  dataset_root: /kaggle/input/datasets/taitruong256/casia-b-hrnet/CASIA-B_HRNet
   dataset_partition: ./datasets/CASIA-B/CASIA-B.json
   test_dataset_name: CASIA-B
   num_workers: 1
@@ -11,7 +11,7 @@ evaluator_cfg:
   enable_float16: false
   restore_ckpt_strict: true
   restore_hint: 0
-  save_name: ProtoGCNTriplet
+  save_name: ProtoGCN
   eval_func: evaluate_indoor_dataset
   sampler:
     batch_size: 1
@@ -26,15 +26,23 @@ evaluator_cfg:
         - type: SkeletonInput
 
 loss_cfg:
-  type: TripletLoss
-  margin: 0.3
-  log_prefix: triplet
-  is_hard_loss: true
+  - type: TripletLoss
+    margin: 0.3
+    log_prefix: triplet
+    is_hard_loss: true
+    loss_term_weight: 1.0
+  - type: CrossEntropyLoss
+    scale: 16
+    label_smooth: true
+    eps: 0.1
+    log_prefix: softmax
+    loss_term_weight: 1.0
 
 model_cfg:
   model: ProtoGCNTriplet
   joint_format: coco
   in_channels: 10
+  num_class: 74
   base_channels: 64
   ch_ratio: 2
   num_stages: 10
@@ -64,12 +72,12 @@ scheduler_cfg:
 
 trainer_cfg:
   enable_float16: false
-  log_iter: 100
+  log_iter: 1
   with_test: true
   restore_ckpt_strict: false
   restore_hint: 0
   save_iter: 1000
-  save_name: ProtoGCNTriplet
+  save_name: ProtoGCN
   sync_BN: false
   total_iter: 45000
   sampler:
