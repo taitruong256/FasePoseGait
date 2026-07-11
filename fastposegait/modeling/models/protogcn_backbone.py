@@ -225,6 +225,20 @@ class ProtoGCNBlock(nn.Module):
         return self.relu(x + res), gcl_graph
 
 
+class PrototypeReconstructionNetwork(nn.Module):
+    def __init__(self, dim, n_prototype=100, dropout=0.1):
+        super().__init__()
+        self.query_matrix = nn.Linear(dim, n_prototype, bias=False)
+        self.memory_matrix = nn.Linear(n_prototype, dim, bias=False)
+        self.softmax = torch.softmax
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        query = self.softmax(self.query_matrix(x), dim=-1)
+        z = self.memory_matrix(query)
+        return self.dropout(z)
+
+
 class ProtoGCNEncoder(nn.Module):
     def __init__(
         self,
@@ -349,6 +363,9 @@ class ProtoGCNTriplet(BaseModel):
             nn.BatchNorm1d(self.fusion_embed_dim),
             nn.ReLU(inplace=True),
         )
+        self.num_prototype = model_cfg.get("num_prototype", 100)
+        self.prn_dropout = model_cfg.get("prn_dropout", 0.1)
+        self.prn = PrototypeReconstructionNetwork(dim=3, n_prototype=self.num_prototype, dropout=self.prn_dropout)
         if self.num_class is not None:
             self.FCs = SeparateFCs(parts_num=self.parts_num, in_channels=self.fusion_embed_dim, out_channels=self.fusion_embed_dim)
             self.BNNecks = SeparateBNNecks(parts_num=self.parts_num, in_channels=self.fusion_embed_dim, class_num=self.num_class)
@@ -372,8 +389,24 @@ class ProtoGCNTriplet(BaseModel):
         motion[:, :, :-1] = x[:, :, 1:] - x[:, :, :-1]
         return motion
 
+    def _reconstruct_graph(self, graph, n, m):
+        if graph is None:
+            return None
+        v = graph.size(-1)
+        graph = graph.view(n, m, graph.size(1), v, v).mean(dim=1)
+        graph_list = []
+        for i in range(n):
+            the_graph = graph[i].permute(1, 2, 0).reshape(v * v, -1)
+            the_graph = self.prn(the_graph)
+            the_graph = the_graph.view(v, v, -1).permute(2, 0, 1)
+            graph_list.append(the_graph)
+        re_graph = torch.stack(graph_list, dim=0)
+        re_graph = re_graph.mean(1).view(n, -1)
+        return re_graph
+
     def extract_feat(self, x):
         x = self._ensure_5d(x)
+        n, m = x.size(0), x.size(-1)
         joint = x
         bone = self._bone_stream(x)
         motion = self._motion_stream(x)
@@ -384,7 +417,8 @@ class ProtoGCNTriplet(BaseModel):
 
         fused = torch.cat([joint_feat, bone_feat, motion_feat], dim=1)
         fused = self.fuse_proj(fused)
-        return fused, {
+        prn_graph = self._reconstruct_graph((joint_graph + bone_graph + motion_graph) / 3.0, n, m)
+        return fused, prn_graph, {
             'joint': joint_graph,
             'bone': bone_graph,
             'motion': motion_graph,
@@ -394,7 +428,7 @@ class ProtoGCNTriplet(BaseModel):
         ipts, labs, _, _, seqL = inputs
         pose = ipts[0]
 
-        feat, last_graph = self.extract_feat(pose)
+        feat, prn_graph, last_graph = self.extract_feat(pose)
         if self.BNNecks is not None:
             embed_1 = self.FCs(feat)
             embed_2, logits = self.BNNecks(embed_1)
@@ -414,5 +448,11 @@ class ProtoGCNTriplet(BaseModel):
         }
         if logits is not None:
             retval["training_feat"]["softmax"] = {"logits": logits, "labels": labs}
+        if prn_graph is not None and logits is not None:
+            retval["training_feat"]["csc"] = {
+                "feature": prn_graph,
+                "lbl": labs,
+                "logit": logits.mean(dim=-1),
+            }
         self.last_graph = last_graph
         return retval
