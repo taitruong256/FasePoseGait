@@ -225,24 +225,34 @@ class ProtoGCNBlock(nn.Module):
         return self.relu(x + res), gcl_graph
 
 
-class ProtoGCNTriplet(BaseModel):
-    def build_network(self, model_cfg):
-        self.joint_format = model_cfg.get("joint_format", "coco")
-        self.in_channels = model_cfg.get("in_channels", 10)
-        self.base_channels = model_cfg.get("base_channels", 64)
-        self.ch_ratio = model_cfg.get("ch_ratio", 2)
-        self.num_stages = model_cfg.get("num_stages", 10)
-        self.inflate_stages = set(model_cfg.get("inflate_stages", [5, 8]))
-        self.down_stages = set(model_cfg.get("down_stages", [5, 8]))
-        self.view_num = model_cfg.get("view_num", 11)
-        self.embed_dim = model_cfg.get("embed_dim", 256)
-        self.max_hop = model_cfg.get("max_hop", 2)
-        self.num_class = model_cfg.get("num_class", None)
+class ProtoGCNEncoder(nn.Module):
+    def __init__(
+        self,
+        joint_format='coco',
+        in_channels=3,
+        base_channels=32,
+        ch_ratio=2,
+        num_stages=6,
+        inflate_stages=None,
+        down_stages=None,
+        view_num=11,
+        embed_dim=64,
+        max_hop=2,
+    ):
+        super().__init__()
+        self.joint_format = joint_format
+        self.in_channels = in_channels
+        self.base_channels = base_channels
+        self.ch_ratio = ch_ratio
+        self.num_stages = num_stages
+        self.inflate_stages = set(inflate_stages or [])
+        self.down_stages = set(down_stages or [])
+        self.view_num = view_num
+        self.embed_dim = embed_dim
 
-        self.graph = Graph(joint_format=self.joint_format, max_hop=self.max_hop)
+        self.graph = Graph(joint_format=self.joint_format, max_hop=max_hop)
         A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
         self.parts_num = self.graph.num_node
-
         self.data_bn = nn.BatchNorm1d(self.in_channels * A.size(1))
 
         modules = []
@@ -277,12 +287,6 @@ class ProtoGCNTriplet(BaseModel):
         self.backbone = nn.ModuleList(modules)
         self.out_channels = current_channels
         self.embed_proj = nn.Conv1d(self.out_channels, self.embed_dim, kernel_size=1)
-        if self.num_class is not None:
-            self.FCs = SeparateFCs(parts_num=self.parts_num, in_channels=self.embed_dim, out_channels=self.embed_dim)
-            self.BNNecks = SeparateBNNecks(parts_num=self.parts_num, in_channels=self.embed_dim, class_num=self.num_class)
-        else:
-            self.FCs = None
-            self.BNNecks = None
 
     def _reshape_input(self, x):
         if x.dim() == 4:
@@ -295,17 +299,96 @@ class ProtoGCNTriplet(BaseModel):
         x = x.view(n, m, v, c, t).permute(0, 1, 3, 4, 2).contiguous().view(n * m, c, t, v)
         return x, n, m
 
-    def extract_feat(self, x):
+    def forward(self, x):
         x, n, m = self._reshape_input(x)
         last_graph = None
         for block in self.backbone:
             x, last_graph = block(x)
 
         x = x.view(n, m, x.size(1), x.size(2), x.size(3))
-        x = x.mean(dim=1)  # person pooling
-        x = x.mean(dim=2)  # temporal pooling -> [N, C, V]
+        x = x.mean(dim=1)
+        x = x.mean(dim=2)
         x = self.embed_proj(x)
         return x, last_graph
+
+
+class ProtoGCNTriplet(BaseModel):
+    def build_network(self, model_cfg):
+        self.joint_format = model_cfg.get("joint_format", "coco")
+        self.in_channels = model_cfg.get("in_channels", 3)
+        self.base_channels = model_cfg.get("base_channels", 32)
+        self.ch_ratio = model_cfg.get("ch_ratio", 2)
+        self.num_stages = model_cfg.get("num_stages", 6)
+        self.inflate_stages = set(model_cfg.get("inflate_stages", [3, 5]))
+        self.down_stages = set(model_cfg.get("down_stages", [3, 5]))
+        self.view_num = model_cfg.get("view_num", 11)
+        self.branch_embed_dim = model_cfg.get("branch_embed_dim", model_cfg.get("embed_dim", 64))
+        self.fusion_embed_dim = model_cfg.get("fusion_embed_dim", model_cfg.get("embed_dim", 128))
+        self.max_hop = model_cfg.get("max_hop", 2)
+        self.num_class = model_cfg.get("num_class", None)
+
+        branch_cfg = dict(
+            joint_format=self.joint_format,
+            in_channels=self.in_channels,
+            base_channels=self.base_channels,
+            ch_ratio=self.ch_ratio,
+            num_stages=self.num_stages,
+            inflate_stages=self.inflate_stages,
+            down_stages=self.down_stages,
+            view_num=self.view_num,
+            embed_dim=self.branch_embed_dim,
+            max_hop=self.max_hop,
+        )
+        self.joint_encoder = ProtoGCNEncoder(**branch_cfg)
+        self.bone_encoder = ProtoGCNEncoder(**branch_cfg)
+        self.motion_encoder = ProtoGCNEncoder(**branch_cfg)
+        self.parts_num = self.joint_encoder.parts_num
+
+        self.fuse_proj = nn.Sequential(
+            nn.Conv1d(self.branch_embed_dim * 3, self.fusion_embed_dim, kernel_size=1),
+            nn.BatchNorm1d(self.fusion_embed_dim),
+            nn.ReLU(inplace=True),
+        )
+        if self.num_class is not None:
+            self.FCs = SeparateFCs(parts_num=self.parts_num, in_channels=self.fusion_embed_dim, out_channels=self.fusion_embed_dim)
+            self.BNNecks = SeparateBNNecks(parts_num=self.parts_num, in_channels=self.fusion_embed_dim, class_num=self.num_class)
+        else:
+            self.FCs = None
+            self.BNNecks = None
+
+    def _ensure_5d(self, x):
+        if x.dim() == 4:
+            x = x.unsqueeze(-1)
+        if x.dim() != 5:
+            raise ValueError(f"Expected input shape [N, C, T, V, M], got {tuple(x.shape)}")
+        return x
+
+    def _bone_stream(self, x):
+        connect_joint = torch.as_tensor(self.joint_encoder.graph.connect_joint, device=x.device, dtype=torch.long)
+        return x - x.index_select(3, connect_joint)
+
+    def _motion_stream(self, x):
+        motion = torch.zeros_like(x)
+        motion[:, :, :-1] = x[:, :, 1:] - x[:, :, :-1]
+        return motion
+
+    def extract_feat(self, x):
+        x = self._ensure_5d(x)
+        joint = x
+        bone = self._bone_stream(x)
+        motion = self._motion_stream(x)
+
+        joint_feat, joint_graph = self.joint_encoder(joint)
+        bone_feat, bone_graph = self.bone_encoder(bone)
+        motion_feat, motion_graph = self.motion_encoder(motion)
+
+        fused = torch.cat([joint_feat, bone_feat, motion_feat], dim=1)
+        fused = self.fuse_proj(fused)
+        return fused, {
+            'joint': joint_graph,
+            'bone': bone_graph,
+            'motion': motion_graph,
+        }
 
     def forward(self, inputs):
         ipts, labs, _, _, seqL = inputs

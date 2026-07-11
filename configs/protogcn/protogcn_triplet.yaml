@@ -21,8 +21,6 @@ evaluator_cfg:
   transform:
     - type: Compose
       trf_cfg:
-        - type: GaitTR_MultiInput
-          joint_format: coco
         - type: SkeletonInput
 
 loss_cfg:
@@ -30,7 +28,7 @@ loss_cfg:
     margin: 0.3
     log_prefix: triplet
     is_hard_loss: true
-    loss_term_weight: 1.0
+    loss_term_weight: 1 
   - type: CrossEntropyLoss
     scale: 16
     label_smooth: true
@@ -41,19 +39,20 @@ loss_cfg:
 model_cfg:
   model: ProtoGCNTriplet
   joint_format: coco
-  in_channels: 10
+  in_channels: 3
   num_class: 74
-  base_channels: 64
+  base_channels: 32
   ch_ratio: 2
-  num_stages: 10
+  num_stages: 6
   inflate_stages:
+    - 3
     - 5
-    - 8
   down_stages:
+    - 3
     - 5
-    - 8
   view_num: 11
-  embed_dim: 256
+  branch_embed_dim: 64
+  fusion_embed_dim: 128
   max_hop: 2
 
 optimizer_cfg:
@@ -66,25 +65,25 @@ scheduler_cfg:
   max_lr: 0.001
   div_factor: 100
   final_div_factor: 1000.0
-  total_steps: 45000
+  total_steps: 20000
   pct_start: 0.475
   scheduler: OneCycleLR
 
 trainer_cfg:
   enable_float16: false
-  log_iter: 1
+  log_iter: 100 
   with_test: true
   restore_ckpt_strict: false
   restore_hint: 0
   save_iter: 1000
   save_name: ProtoGCN
   sync_BN: false
-  total_iter: 45000
+  total_iter: 20000
   sampler:
     batch_shuffle: false
     batch_size:
       - 4
-      - 64
+      - 64 
     frames_num_fixed: 60
     frames_num_max: 50
     frames_num_min: 25
@@ -100,6 +99,4 @@ trainer_cfg:
           probability: 0.1
         - type: JointNoise
           std: 0.3
-        - type: GaitTR_MultiInput
-          joint_format: coco
         - type: SkeletonInput
