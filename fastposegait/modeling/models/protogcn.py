@@ -12,6 +12,9 @@ class ProtoGCN(BaseModel):
     def build_network(self, model_cfg):
         self.num_class = model_cfg['num_class']
         self.log_pose = model_cfg.get('log_pose', False)
+        self.view_loss_weight = model_cfg.get('view_loss_weight', 0.)
+        self.view_step = model_cfg.get('view_step', 18)
+        self.random_rotation_theta = model_cfg.get('random_rotation_theta', 0.)
         self.backbone = ProtoGCNBackbone(**model_cfg['backbone_cfg'])
         embedding_dim = model_cfg.get('embedding_dim', self.backbone.out_channels)
         self.embedding_proj = (torch.nn.Linear(self.backbone.out_channels, embedding_dim)
@@ -29,9 +32,39 @@ class ProtoGCN(BaseModel):
             free_keys=['type', 'log_prefix', 'model_managed'])
         self.csc_loss = ClassSpecificContrastiveLoss(**csc_args)
 
+    def init_parameters(self):
+        super().init_parameters()
+        # ProtoGCN SimpleHead initializes its classifier with std=0.01.
+        torch.nn.init.normal_(self.fc_cls.weight, std=0.01)
+        torch.nn.init.constant_(self.fc_cls.bias, 0.)
+
+    def _view_targets(self, views, device):
+        try:
+            targets = [int(str(view)) // self.view_step for view in views]
+        except ValueError as error:
+            raise ValueError('CASIA-B views must be numeric strings, got {}.'.format(views)) from error
+        targets = torch.tensor(targets, device=device, dtype=torch.long)
+        if targets.min() < 0 or targets.max() >= self.backbone.gcn[0].gcn.view_fc.out_features:
+            raise ValueError('View target is outside ProtoGCN view classes: {}.'.format(targets.tolist()))
+        return targets
+
+    def _random_rotate(self, pose):
+        """Apply one 2D rotation per sequence, matching ProtoGCN RandomRot."""
+        if not self.training or not self.random_rotation_theta:
+            return pose
+        angles = pose.new_empty(pose.size(0)).uniform_(
+            -self.random_rotation_theta, self.random_rotation_theta)
+        cos, sin = torch.cos(angles)[:, None, None, None], torch.sin(angles)[:, None, None, None]
+        rotated = pose.clone()
+        x, y = pose[:, 0], pose[:, 1]
+        rotated[:, 0] = cos * x - sin * y
+        rotated[:, 1] = sin * x + cos * y
+        return rotated
+
     def forward(self, inputs):
-        ipts, labels, _, _, seqL = inputs
+        ipts, labels, _, views, seqL = inputs
         pose = ipts[0]
+        pose = self._random_rotate(pose)
         n, c, t, v, m = pose.shape
         if seqL is None:
             features, reconstructed_graph = self.backbone(
@@ -63,9 +96,16 @@ class ProtoGCN(BaseModel):
             csc_loss, _ = self.csc_loss(
                 features=reconstructed_graph, labels=labels, logits=cls_score.detach())
             csc_loss = csc_loss * self.csc_loss.loss_term_weight
+            if self.view_loss_weight:
+                view_targets = self._view_targets(views, cls_score.device)
+                view_loss = F.cross_entropy(self.backbone.view_logits, view_targets)
+                view_loss = view_loss * self.view_loss_weight
+            else:
+                view_loss = cls_score.new_zeros(())
         else:
             # Evaluation must not update CSC's class-memory buffer.
             csc_loss = cls_score.new_zeros(())
+            view_loss = cls_score.new_zeros(())
         visual_summary = {}
         if self.log_pose:
             visual_summary['image/pose'] = (
@@ -77,6 +117,7 @@ class ProtoGCN(BaseModel):
                 # smoothing, which is standard CE as used by ProtoGCN.
                 'cross_entropy': {'logits': cls_score.unsqueeze(-1), 'labels': labels},
                 'csc': csc_loss,
+                'view': view_loss,
             },
             'visual_summary': visual_summary,
             'inference_feat': {'embeddings': embeddings},

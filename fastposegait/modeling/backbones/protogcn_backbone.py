@@ -207,12 +207,16 @@ class ProtoGCNBackbone(nn.Module):
             x = self.data_bn(x.view(n * m, v * c, t))
         x = x.view(n, m, v, c, t).permute(0, 1, 3, 4, 2).contiguous().view(n * m, c, t, v)
         graphs = []
+        view_logits_list = []
         for block in self.gcn:
             x, graph = block(x)
             graphs.append(graph)
+            view_logits_list.append(block.gcn.last_view_logits)
         x = x.view(n, m, *x.shape[1:])
         channels = x.size(2)
         graph = graphs[-1].view(n, m, channels, v, v).mean(1).view(n, channels, v * v)
         reconstructed = torch.stack([self.prn(item.t()).t().view(channels, v, v) for item in graph])
         reconstructed = self.relu(self.bn(self.post(reconstructed))).mean(1).view(n, -1)
+        self.view_logits = torch.stack(view_logits_list, dim=0).mean(dim=0)
+        self.view_logits = self.view_logits.view(n, m, -1).mean(dim=1)
         return x, reconstructed

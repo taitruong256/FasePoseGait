@@ -388,8 +388,16 @@ class BaseModel(MetaModel, nn.Module):
             with autocast(enabled=self.engine_cfg['enable_float16']):
                 retval = self.forward(ipts)
                 inference_feat = retval['inference_feat']
+                seqL = ipts[4]
+                expected_per_rank = seqL.numel() if seqL is not None else ipts[0].size(0)
                 for k, v in inference_feat.items():
                     inference_feat[k] = ddp_all_gather(v, requires_grad=False)
+                    expected_size = expected_per_rank * torch.distributed.get_world_size()
+                    if inference_feat[k].size(0) != expected_size:
+                        raise RuntimeError(
+                            'Inference feature {} has {} samples, expected {}. '
+                            'Check packed-sequence (seqL) handling in the model.'.format(
+                                k, inference_feat[k].size(0), expected_size))
                 del retval
             for k, v in inference_feat.items():
                 inference_feat[k] = ts2np(v)

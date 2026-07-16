@@ -17,6 +17,8 @@ class CollateFn(object):
             raise ValueError
         self.ordered = sample_type[1] == 'ordered'
 
+        self.uniform_sample = sample_config.get('uniform_sample', False)
+
         # fixed cases
         if self.sampler == 'fixed':
             self.frames_num_fixed = sample_config['frames_num_fixed']
@@ -61,7 +63,16 @@ class CollateFn(object):
                     frames_num = random.choice(
                         list(range(self.frames_num_min, self.frames_num_max+1)))
 
-                if self.ordered:
+                if self.uniform_sample:
+                    if seq_len < frames_num:
+                        indices = np.arange(frames_num) % seq_len
+                    else:
+                        boundaries = np.linspace(0, seq_len, frames_num + 1, dtype=np.int64)
+                        widths = boundaries[1:] - boundaries[:-1]
+                        indices = boundaries[:-1] + np.asarray([
+                            np.random.randint(width) if width > 0 else 0
+                            for width in widths])
+                elif self.ordered:
                     fs_n = frames_num + self.frames_skip_num
                     if seq_len < fs_n:
                         it = math.ceil(fs_n / seq_len)
