@@ -203,5 +203,5 @@ def get_ddp_module(module, **kwargs):
 
 def params_count(net):
     n_parameters = sum(p.numel() for p in net.parameters())
-
-    return 'Parameters Count: {:.5f}M'.format(n_parameters / 1e6)
+    n_trainable = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    return 'Parameters Count: total={}, trainable={}'.format(n_parameters, n_trainable)

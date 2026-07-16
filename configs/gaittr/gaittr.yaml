@@ -1,6 +1,6 @@
 data_cfg:
   dataset_name: CASIA-B
-  dataset_root: your_path
+  dataset_root: /home/HardDisk/Tai/CASIA-B_HRNet
   dataset_partition: ./datasets/CASIA-B/CASIA-B.json
   test_dataset_name: CASIA-B
   num_workers: 1
@@ -11,11 +11,11 @@ data_cfg:
 evaluator_cfg:
   enable_float16: false
   restore_ckpt_strict: true
-  restore_hint: 40000
+  restore_hint: 0
   save_name: GaitTR
   eval_func: evaluate_indoor_dataset
   sampler:
-    batch_size: 4 #should same to num_gpus
+    batch_size: 1
     sample_type: all_ordered
     type: InferenceSampler
   metric: euc # cos
@@ -54,25 +54,25 @@ scheduler_cfg:
   max_lr: 0.001
   div_factor: 100
   final_div_factor: 1000.0
-  total_steps: 40000
-  pct_start: 0.475 # 学习率上升部分的比例
+  total_steps: 45000
+  pct_start: 0.475
   scheduler: OneCycleLR
 
 trainer_cfg:
   enable_float16: false #not use
   log_iter: 100
-  with_test: true
+  with_test: true 
   restore_ckpt_strict: false
   restore_hint: 0
   save_iter: 1000
   save_name: GaitTR
-  sync_BN: true
-  total_iter: 40000
+  sync_BN: false
+  total_iter: 45000
   sampler:
     batch_shuffle: false
     batch_size:
-      - 4
-      - 64
+      - 4 
+      - 32 
     frames_num_fixed: 60
     frames_num_max: 50
     frames_num_min: 25

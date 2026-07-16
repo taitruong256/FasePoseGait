@@ -1,0 +1,76 @@
+data_cfg:
+  dataset_name: CASIA-B
+  dataset_root: /home/HardDisk/Tai/CASIA-B_HRNet
+  dataset_partition: ./datasets/CASIA-B/CASIA-B.json
+  test_dataset_name: CASIA-B
+  num_workers: 1
+  remove_no_gallery: false
+  frame_threshold: 0
+
+evaluator_cfg:
+  enable_float16: false
+  restore_ckpt_strict: true
+  restore_hint: 40000
+  save_name: ProtoGCN
+  eval_func: evaluate_indoor_dataset
+  sampler: {batch_size: 4, sample_type: all_ordered, type: InferenceSampler}
+  metric: euc
+  transform:
+    - type: SkeletonInput
+
+loss_cfg:
+  - type: TripletLoss
+    margin: 0.3
+    log_prefix: triplet
+    is_hard_loss: false
+
+model_cfg:
+  model: ProtoGCN
+  # TRAIN_SET contains 74 IDs and CollateFn maps them to labels 0..73.
+  num_class: 74
+  csc_loss_cfg:
+    num_classes: 74
+    input_dim: 289
+    hidden_dim: 256
+    temperature: 0.125
+    momentum: 0.9
+    loss_term_weight: 0.2
+  backbone_cfg:
+    in_channels: 3
+    base_channels: 96
+    ch_ratio: 2
+    num_stages: 4
+    inflate_stages: [3, 4]
+    down_stages: [3, 4]
+    data_bn_type: VC
+    num_person: 1
+    num_prototype: 300
+    view_num: 11
+    num_joints: 17
+    tcn_ms_cfg: [[3, 1], [3, 2], [3, 3], [3, 4], [max, 3], 1x1]
+    graph_cfg: {layout: coco, mode: random, num_filter: 8, init_off: 0.04, init_std: 0.02}
+
+optimizer_cfg: {lr: 0.001, solver: Adam, weight_decay: 0.00002}
+scheduler_cfg: {three_phase: true, max_lr: 0.001, div_factor: 100, final_div_factor: 1000.0, total_steps: 40000, pct_start: 0.475, scheduler: OneCycleLR}
+
+trainer_cfg:
+  enable_float16: false
+  log_iter: 100
+  with_test: true
+  restore_ckpt_strict: false
+  restore_hint: 0
+  save_iter: 1000
+  save_name: ProtoGCN
+  sync_BN: true
+  total_iter: 40000
+  sampler:
+    batch_shuffle: false
+    batch_size: [2, 4]
+    frames_num_fixed: 60
+    frames_num_max: 50
+    frames_num_min: 25
+    sample_type: fixed_ordered
+    frames_skip_num: 0
+    type: TripletSampler
+  transform:
+    - type: SkeletonInput
