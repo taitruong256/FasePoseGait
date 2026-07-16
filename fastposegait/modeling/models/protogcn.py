@@ -30,14 +30,34 @@ class ProtoGCN(BaseModel):
         self.csc_loss = ClassSpecificContrastiveLoss(**csc_args)
 
     def forward(self, inputs):
-        ipts, labels, _, _, _ = inputs
+        ipts, labels, _, _, seqL = inputs
         pose = ipts[0]
         n, c, t, v, m = pose.shape
-        features, reconstructed_graph = self.backbone(pose.permute(0, 4, 2, 3, 1).contiguous())
-        pooled_features = features.mean(dim=(1, 3, 4))
+        if seqL is None:
+            features, reconstructed_graph = self.backbone(
+                pose.permute(0, 4, 2, 3, 1).contiguous())
+            pooled_features = features.mean(dim=(1, 3, 4))
+        else:
+            lengths = seqL.reshape(-1).detach().cpu().tolist()
+            if sum(lengths) != t:
+                raise ValueError(
+                    'Packed sequence lengths ({}) do not match input frames ({}).'.format(
+                        sum(lengths), t))
+            pooled = []
+            start = 0
+            for length in lengths:
+                sequence_pose = pose[:, :, start:start + length]
+                features, _ = self.backbone(
+                    sequence_pose.permute(0, 4, 2, 3, 1).contiguous())
+                pooled.append(features.mean(dim=(1, 3, 4)))
+                start += length
+            pooled_features = torch.cat(pooled, dim=0)
+            reconstructed_graph = None
         cls_score = self.fc_cls(pooled_features)
         embeddings = F.normalize(self.embedding_proj(pooled_features), p=2, dim=1).unsqueeze(-1)
         if self.training:
+            if reconstructed_graph is None:
+                raise ValueError('Packed sequences are only supported during inference.')
             # Match ProtoGCN BaseHead.loss: CSC only updates a class memory
             # when the detached classifier prediction is correct/confident.
             csc_loss, _ = self.csc_loss(
@@ -45,7 +65,7 @@ class ProtoGCN(BaseModel):
             csc_loss = csc_loss * self.csc_loss.loss_term_weight
         else:
             # Evaluation must not update CSC's class-memory buffer.
-            csc_loss = reconstructed_graph.new_zeros(())
+            csc_loss = cls_score.new_zeros(())
         visual_summary = {}
         if self.log_pose:
             visual_summary['image/pose'] = (
