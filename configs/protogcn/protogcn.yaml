@@ -19,22 +19,23 @@ evaluator_cfg:
     - type: SkeletonInput
 
 loss_cfg:
-  - type: TripletLoss
-    margin: 0.3
-    log_prefix: triplet
-    is_hard_loss: false
-
-model_cfg:
-  model: ProtoGCN
-  # TRAIN_SET contains 74 IDs and CollateFn maps them to labels 0..73.
-  num_class: 74
-  csc_loss_cfg:
+  - type: CrossEntropyLoss
+    scale: 1
+    label_smooth: false
+    log_prefix: cross_entropy
+  - type: ClassSpecificContrastiveLoss
+    model_managed: true
+    log_prefix: csc
     num_classes: 74
     input_dim: 289
     hidden_dim: 256
     temperature: 0.125
     momentum: 0.9
     loss_term_weight: 0.2
+
+model_cfg:
+  model: ProtoGCN
+  num_class: 74
   backbone_cfg:
     in_channels: 3
     base_channels: 96
@@ -55,13 +56,14 @@ scheduler_cfg: {three_phase: true, max_lr: 0.001, div_factor: 100, final_div_fac
 
 trainer_cfg:
   enable_float16: false
-  log_iter: 100
+  log_iter: 1
   with_test: true
   restore_ckpt_strict: false
   restore_hint: 0
   save_iter: 1000
   save_name: ProtoGCN
-  sync_BN: true
+  # SyncBatchNorm has no benefit with --nproc_per_node=1.
+  sync_BN: false
   total_iter: 40000
   sampler:
     batch_shuffle: false

@@ -16,7 +16,7 @@ class ClassSpecificContrastiveLoss(BaseLoss):
         self.register_buffer('avg_f', torch.randn(hidden_dim, num_classes))
 
     @gather_and_scale_wrapper
-    def forward(self, features, labels):
+    def forward(self, features, labels, logits=None):
         features = self.cl_fc(features)
         labels = labels.view(-1).long()
         if labels.numel() == 0 or labels.min() < 0 or labels.max() >= self.num_classes:
@@ -24,7 +24,16 @@ class ClassSpecificContrastiveLoss(BaseLoss):
                 'CSC labels must be in [0, {}], got [{}, {}].'.format(
                     self.num_classes - 1, labels.min().item(), labels.max().item()))
         onehot = F.one_hot(labels, self.num_classes).float()
-        mask = onehot * (onehot > self.pred_threshold).float()
+        if logits is None:
+            # Useful for ablations, but normal ProtoGCN training supplies the
+            # detached classifier score below.
+            predicted_onehot, confidence = onehot, onehot
+        else:
+            predicted_onehot = F.one_hot(logits.argmax(dim=1), self.num_classes).float()
+            confidence = torch.softmax(logits, dim=1)
+        # Same class-specific mask as ProtoGCN BaseHead: only correctly
+        # predicted, sufficiently confident samples update class memories.
+        mask = onehot * predicted_onehot * (confidence > self.pred_threshold).float()
         mask_sum = mask.sum(0, keepdim=True)
         batch_means = features.t().matmul(mask) / (mask_sum + 1e-12)
         update_weight = torch.where(mask_sum > 1e-8,

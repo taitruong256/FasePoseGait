@@ -26,8 +26,14 @@ class LossAggregator():
         Args:
             loss_cfg: Config of losses. List for multiple losses.
         """
-        self.losses = {loss_cfg['log_prefix']: self._build_loss_(loss_cfg)} if is_dict(loss_cfg) \
-            else {cfg['log_prefix']: self._build_loss_(cfg) for cfg in loss_cfg}
+        loss_cfgs = [loss_cfg] if is_dict(loss_cfg) else loss_cfg
+        # Losses with trainable state can be model-managed submodules.  They
+        # must not be instantiated here, otherwise their parameters are absent
+        # from model.parameters(), optimizer state and model checkpoints.
+        self.losses = {
+            cfg['log_prefix']: self._build_loss_(cfg)
+            for cfg in loss_cfgs if not cfg.get('model_managed', False)
+        }
 
     def _build_loss_(self, loss_cfg):
         """Build the losses from loss_cfg.
@@ -37,7 +43,7 @@ class LossAggregator():
         """
         Loss = get_attr_from([losses], loss_cfg['type'])
         valid_loss_arg = get_valid_args(
-            Loss, loss_cfg, ['type', 'gather_and_scale'])
+            Loss, loss_cfg, ['type', 'gather_and_scale', 'model_managed'])
         loss = get_ddp_module(Loss(**valid_loss_arg).cuda())
         return loss
 
