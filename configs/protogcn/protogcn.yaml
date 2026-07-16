@@ -10,7 +10,7 @@ data_cfg:
 evaluator_cfg:
   enable_float16: false
   restore_ckpt_strict: true
-  restore_hint: 40000
+  restore_hint: 2000
   save_name: ProtoGCN
   eval_func: evaluate_indoor_dataset
   sampler: {batch_size: 4, sample_type: all_ordered, type: InferenceSampler}
@@ -35,6 +35,7 @@ loss_cfg:
 
 model_cfg:
   model: ProtoGCN
+  log_pose: false
   num_class: 74
   backbone_cfg:
     in_channels: 3
@@ -52,22 +53,23 @@ model_cfg:
     graph_cfg: {layout: coco, mode: random, num_filter: 8, init_off: 0.04, init_std: 0.02}
 
 optimizer_cfg: {lr: 0.001, solver: Adam, weight_decay: 0.00002}
-scheduler_cfg: {three_phase: true, max_lr: 0.001, div_factor: 100, final_div_factor: 1000.0, total_steps: 40000, pct_start: 0.475, scheduler: OneCycleLR}
+scheduler_cfg: {three_phase: true, max_lr: 0.001, div_factor: 100, final_div_factor: 1000.0, total_steps: 2000, pct_start: 0.475, scheduler: OneCycleLR}
 
 trainer_cfg:
-  enable_float16: false
-  log_iter: 1
+  enable_float16: false 
+  cuda_deterministic: false
+  log_iter: 50
   with_test: true
   restore_ckpt_strict: false
   restore_hint: 0
-  save_iter: 1000
+  save_iter: 500
   save_name: ProtoGCN
   # SyncBatchNorm has no benefit with --nproc_per_node=1.
   sync_BN: false
-  total_iter: 40000
+  total_iter: 2000
   sampler:
     batch_shuffle: false
-    batch_size: [2, 4]
+    batch_size: [4, 16]
     frames_num_fixed: 60
     frames_num_max: 50
     frames_num_min: 25

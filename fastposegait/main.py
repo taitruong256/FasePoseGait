@@ -35,7 +35,13 @@ def initialization(cfgs, training):
     msg_mgr.log_info(engine_cfg)
 
     seed = torch.distributed.get_rank()
-    init_seeds(seed)
+    init_seeds(seed, cuda_deterministic=engine_cfg.get('cuda_deterministic', True))
+    if engine_cfg.get('allow_tf32', False) and torch.cuda.is_available():
+        # TF32 uses Ampere Tensor Cores for float32 matmul/convolution.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        if hasattr(torch, 'set_float32_matmul_precision'):
+            torch.set_float32_matmul_precision('high')
 
 
 def run_model(cfgs, training):

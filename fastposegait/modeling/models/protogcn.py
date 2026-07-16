@@ -11,6 +11,7 @@ from utils import get_valid_args
 class ProtoGCN(BaseModel):
     def build_network(self, model_cfg):
         self.num_class = model_cfg['num_class']
+        self.log_pose = model_cfg.get('log_pose', False)
         self.backbone = ProtoGCNBackbone(**model_cfg['backbone_cfg'])
         embedding_dim = model_cfg.get('embedding_dim', self.backbone.out_channels)
         self.embedding_proj = (torch.nn.Linear(self.backbone.out_channels, embedding_dim)
@@ -45,6 +46,11 @@ class ProtoGCN(BaseModel):
         else:
             # Evaluation must not update CSC's class-memory buffer.
             csc_loss = reconstructed_graph.new_zeros(())
+        visual_summary = {}
+        if self.log_pose:
+            visual_summary['image/pose'] = (
+                pose.permute(0, 2, 4, 3, 1).contiguous().view(n * t, m, v, c))
+
         return {
             'training_feat': {
                 # CrossEntropyLoss is configured with scale=1 and no label
@@ -52,6 +58,6 @@ class ProtoGCN(BaseModel):
                 'cross_entropy': {'logits': cls_score.unsqueeze(-1), 'labels': labels},
                 'csc': csc_loss,
             },
-            'visual_summary': {'image/pose': pose.permute(0, 2, 4, 3, 1).contiguous().view(n * t, m, v, c)},
+            'visual_summary': visual_summary,
             'inference_feat': {'embeddings': embeddings},
         }
