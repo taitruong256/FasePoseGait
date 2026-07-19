@@ -33,7 +33,7 @@ class CollateFn(object):
             self.frames_num_min = sample_config['frames_num_min']
 
         if self.sampler != 'all' and self.ordered:
-            self.frames_skip_num = sample_config['frames_skip_num']
+            self.frames_skip_num = sample_config.get('frames_skip_num', 0)
 
         self.frames_all_limit = -1
         if self.sampler == 'all' and 'frames_all_limit' in sample_config:
