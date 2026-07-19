@@ -18,6 +18,10 @@ class CollateFn(object):
         self.ordered = sample_type[1] == 'ordered'
 
         self.uniform_sample = sample_config.get('uniform_sample', False)
+        self.temporal_sampler = sample_config.get('temporal_sampler')
+        self.temporal_p_interval = sample_config.get('temporal_p_interval', 1)
+        self.temporal_test_mode = sample_config.get('temporal_test_mode', False)
+        self.temporal_seed = sample_config.get('temporal_seed', 255)
 
         # fixed cases
         if self.sampler == 'fixed':
@@ -63,7 +67,9 @@ class CollateFn(object):
                     frames_num = random.choice(
                         list(range(self.frames_num_min, self.frames_num_max+1)))
 
-                if self.uniform_sample:
+                if self.temporal_sampler == 'protogcn':
+                    indices = self._protogcn_sample_indices(seq_len, frames_num)
+                elif self.uniform_sample:
                     if seq_len < frames_num:
                         indices = np.arange(frames_num) % seq_len
                     else:
@@ -124,3 +130,36 @@ class CollateFn(object):
 
         batch[0] = fras_batch
         return batch
+
+    def _protogcn_sample_indices(self, num_frames, clip_len):
+        """Port of ProtoGCN ``UniformSampleDecode`` for one temporal clip."""
+        if num_frames <= 0:
+            raise ValueError('ProtoGCN temporal sampling requires a non-empty sequence.')
+
+        p_interval = self.temporal_p_interval
+        if not isinstance(p_interval, (tuple, list)):
+            p_interval = (p_interval, p_interval)
+        if len(p_interval) != 2:
+            raise ValueError('temporal_p_interval must be a scalar or a two-value interval.')
+        rng = np.random.RandomState(self.temporal_seed) if self.temporal_test_mode else np.random
+        ratio = rng.rand() * (p_interval[1] - p_interval[0]) + p_interval[0]
+        sampled_frames = int(ratio * num_frames)
+        # The original pipeline assumes p_interval produces at least one frame.
+        sampled_frames = max(1, sampled_frames)
+        offset = rng.randint(num_frames - sampled_frames + 1)
+
+        if sampled_frames < clip_len:
+            start = rng.randint(0, sampled_frames)
+            indices = np.arange(start, start + clip_len) % sampled_frames
+        elif sampled_frames < 2 * clip_len:
+            basic = np.arange(clip_len)
+            chosen = rng.choice(clip_len + 1, sampled_frames - clip_len, replace=False)
+            expansion = np.zeros(clip_len + 1, dtype=np.int64)
+            expansion[chosen] = 1
+            indices = basic + np.cumsum(expansion)[:-1]
+        else:
+            boundaries = np.asarray(
+                [i * sampled_frames // clip_len for i in range(clip_len + 1)])
+            widths = np.diff(boundaries)
+            indices = boundaries[:-1] + rng.randint(widths)
+        return (indices + offset).tolist()

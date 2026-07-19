@@ -163,8 +163,19 @@ class BaseModel(MetaModel, nn.Module):
 
         if training:
             self.loss_aggregator = LossAggregator(cfgs['loss_cfg'])
+            total_epoch = self.engine_cfg.get('total_epoch')
+            if total_epoch is not None:
+                if total_epoch <= 0:
+                    raise ValueError('total_epoch must be a positive integer.')
+                # A finite epoch sampler defines an epoch as one complete pass
+                # through its DataLoader.  Keep total_iter for compatibility
+                # with the existing checkpointing/training loop.
+                self.engine_cfg['total_iter'] = total_epoch * len(self.train_loader)
             self.optimizer = self.get_optimizer(self.cfgs['optimizer_cfg'])
-            self.scheduler = self.get_scheduler(cfgs['scheduler_cfg'])
+            scheduler_cfg = dict(cfgs['scheduler_cfg'])
+            if scheduler_cfg.get('T_max') == 'auto':
+                scheduler_cfg['T_max'] = self.engine_cfg['total_iter']
+            self.scheduler = self.get_scheduler(scheduler_cfg)
         self.train(training)
         restore_hint = self.engine_cfg['restore_hint']
         if restore_hint != 0:
@@ -417,37 +428,45 @@ class BaseModel(MetaModel, nn.Module):
     @ staticmethod
     def run_train(model):
         """Accept the instance object(model) here, and then run the train loop."""
-        for inputs in model.train_loader:
-            ipts = model.inputs_pretreament(inputs)
-            with autocast(enabled=model.engine_cfg['enable_float16']):
-                retval = model(ipts)
-                training_feat, visual_summary = retval['training_feat'], retval['visual_summary']
-                del retval
-            loss_sum, loss_info = model.loss_aggregator(training_feat)
-            ok = model.train_step(loss_sum)
-            if not ok:
-                continue
+        # Most legacy samplers are deliberately infinite.  EpochBatchSampler is
+        # finite, so restart it explicitly and advance its deterministic epoch.
+        epoch = model.iteration // max(1, len(model.train_loader))
+        while model.iteration < model.engine_cfg['total_iter']:
+            batch_sampler = model.train_loader.batch_sampler
+            if hasattr(batch_sampler, 'set_epoch'):
+                batch_sampler.set_epoch(epoch)
+            for inputs in model.train_loader:
+                ipts = model.inputs_pretreament(inputs)
+                with autocast(enabled=model.engine_cfg['enable_float16']):
+                    retval = model(ipts)
+                    training_feat, visual_summary = retval['training_feat'], retval['visual_summary']
+                    del retval
+                loss_sum, loss_info = model.loss_aggregator(training_feat)
+                ok = model.train_step(loss_sum)
+                if not ok:
+                    continue
 
-            visual_summary.update(loss_info)
-            visual_summary['scalar/learning_rate'] = model.optimizer.param_groups[0]['lr']
+                visual_summary.update(loss_info)
+                visual_summary['scalar/learning_rate'] = model.optimizer.param_groups[0]['lr']
 
-            model.msg_mgr.train_step(loss_info, visual_summary)
-            if model.iteration % model.engine_cfg['save_iter'] == 0:
-                # save the checkpoint
-                model.save_ckpt(model.iteration)
+                model.msg_mgr.train_step(loss_info, visual_summary)
+                if model.iteration % model.engine_cfg['save_iter'] == 0:
+                    # save the checkpoint
+                    model.save_ckpt(model.iteration)
 
-                # run test if with_test = true
-                if model.engine_cfg['with_test']:
-                    model.msg_mgr.log_info("Running test...")
-                    model.eval()
-                    result_dict = BaseModel.run_test(model)
-                    model.train()
-                    if model.cfgs['trainer_cfg']['fix_BN']:
-                        model.fix_BN()
-                    model.msg_mgr.write_to_tensorboard(result_dict)
-                    model.msg_mgr.reset_time()
-            if model.iteration >= model.engine_cfg['total_iter']:
-                break
+                    # run test if with_test = true
+                    if model.engine_cfg['with_test']:
+                        model.msg_mgr.log_info("Running test...")
+                        model.eval()
+                        result_dict = BaseModel.run_test(model)
+                        model.train()
+                        if model.cfgs['trainer_cfg']['fix_BN']:
+                            model.fix_BN()
+                        model.msg_mgr.write_to_tensorboard(result_dict)
+                        model.msg_mgr.reset_time()
+                if model.iteration >= model.engine_cfg['total_iter']:
+                    return
+            epoch += 1
 
     @ staticmethod
     def run_test(model):

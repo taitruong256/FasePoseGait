@@ -10,12 +10,11 @@ data_cfg:
 evaluator_cfg:
   enable_float16: false
   restore_ckpt_strict: true
-  restore_hint: 2000
+  restore_hint: 10000
   save_name: ProtoGCN
   eval_func: evaluate_indoor_dataset
-  # Match the original ProtoGCN test loader and avoid packing several
-  # variable-length sequences into one temporal tensor during evaluation.
-  sampler: {batch_size: 1, sample_type: all_ordered, type: InferenceSampler}
+  # One 100-frame clip, sampled with ProtoGCN's UniformSampleDecode logic.
+  sampler: {batch_size: 1, sample_type: fixed_ordered, type: InferenceSampler, frames_num_fixed: 100, temporal_sampler: protogcn, temporal_test_mode: true}
   metric: euc
   transform:
     - type: SkeletonInput
@@ -44,11 +43,11 @@ model_cfg:
   random_rotation_theta: 0.2
   backbone_cfg:
     in_channels: 3
-    base_channels: 64
+    base_channels: 96
     ch_ratio: 2
-    num_stages: 4
-    inflate_stages: [3, 4]
-    down_stages: [3, 4]
+    num_stages: 10
+    inflate_stages: [5, 8]
+    down_stages: [5, 8]
     data_bn_type: VC
     num_person: 1
     num_prototype: 300
@@ -58,7 +57,8 @@ model_cfg:
     graph_cfg: {layout: coco, mode: random, num_filter: 8, init_off: 0.04, init_std: 0.02}
 
 optimizer_cfg: {lr: 0.025, momentum: 0.9, nesterov: true, solver: SGD, weight_decay: 0.0005}
-scheduler_cfg: {scheduler: CosineAnnealingLR, T_max: 101800, eta_min: 0}
+# Match the complete 10-epoch run (10 × batches per epoch).
+scheduler_cfg: {scheduler: CosineAnnealingLR, T_max: auto, eta_min: 0}
 
 trainer_cfg:
   enable_float16: false 
@@ -71,17 +71,17 @@ trainer_cfg:
   save_name: ProtoGCN
   # SyncBatchNorm has no benefit with --nproc_per_node=1.
   sync_BN: false
-  total_iter: 101800
+  total_epoch: 10
   sampler:
-    batch_shuffle: false
-    # Match the original ProtoGCN global batch of 16 sequence clips.
+    batch_shuffle: true
+    # Finite epoch sampler: every training sequence is used once per epoch.
     batch_size: 16
-    frames_num_fixed: 60
+    frames_num_fixed: 100
     frames_num_max: 50
     frames_num_min: 25
     sample_type: fixed_ordered
     frames_skip_num: 0
-    type: CommonSampler
-    uniform_sample: true
+    type: EpochBatchSampler
+    temporal_sampler: protogcn
   transform:
     - type: SkeletonInput

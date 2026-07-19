@@ -122,6 +122,52 @@ class CommonSampler(tordata.sampler.Sampler):
         return len(self.dataset)
 
 
+class EpochBatchSampler(tordata.sampler.Sampler):
+    """Finite, epoch-aware batch sampler for clip-classification models.
+
+    Unlike ``CommonSampler``, this sampler does not draw with replacement.
+    Every sequence assigned to a rank is yielded once per epoch.  Calling
+    ``set_epoch`` changes the deterministic shuffle, matching PyTorch's
+    ``DistributedSampler`` convention.
+    """
+    def __init__(self, dataset, batch_size, batch_shuffle=True, seed=0):
+        if not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError('batch_size must be a positive integer, got {}.'.format(batch_size))
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.batch_shuffle = batch_shuffle
+        self.seed = seed
+        self.epoch = 0
+        self.world_size = dist.get_world_size()
+        self.rank = dist.get_rank()
+        if batch_size % self.world_size != 0:
+            raise ValueError(
+                'World size ({}) is not divisible by batch_size ({}).'.format(
+                    self.world_size, batch_size))
+        self.batch_size_per_rank = batch_size // self.world_size
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
+    def _indices_this_rank(self):
+        indices = list(range(len(self.dataset)))
+        if self.batch_shuffle:
+            generator = torch.Generator()
+            generator.manual_seed(self.seed + self.epoch)
+            indices = torch.randperm(len(indices), generator=generator).tolist()
+        # No padding: a sequence is never repeated merely to balance ranks.
+        return indices[self.rank::self.world_size]
+
+    def __iter__(self):
+        indices = self._indices_this_rank()
+        for start in range(0, len(indices), self.batch_size_per_rank):
+            yield indices[start:start + self.batch_size_per_rank]
+
+    def __len__(self):
+        local_size = len(range(self.rank, len(self.dataset), self.world_size))
+        return math.ceil(local_size / self.batch_size_per_rank)
+
+
 class RandomTripletSampler(tordata.sampler.Sampler):
     '''
     This sampler is a trade-off of Random Sampler and Triplet Sampler. 
