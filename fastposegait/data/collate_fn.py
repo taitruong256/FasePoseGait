@@ -22,6 +22,7 @@ class CollateFn(object):
         self.temporal_p_interval = sample_config.get('temporal_p_interval', 1)
         self.temporal_test_mode = sample_config.get('temporal_test_mode', False)
         self.temporal_seed = sample_config.get('temporal_seed', 255)
+        self.num_clips = sample_config.get('num_clips', 1)
 
         # fixed cases
         if self.sampler == 'fixed':
@@ -112,18 +113,36 @@ class CollateFn(object):
         # b: batch_size
         # p: batch_size_per_gpu
         # g: gpus_num
-        fras_batch = [sample_frames(seqs) for seqs in seqs_batch]  # [b, f]
-        batch = [fras_batch, labs_batch, typs_batch, vies_batch, None]
+        # Sample multiple clips for each sequence
+        fras_batch_all_clips = []
+        labs_batch_all_clips = []
+        typs_batch_all_clips = []
+        vies_batch_all_clips = []
+        
+        for clip_idx in range(self.num_clips):
+            fras_batch = [sample_frames(seqs) for seqs in seqs_batch]  # [b, f]
+            fras_batch_all_clips.append(fras_batch)
+            labs_batch_all_clips.extend(labs_batch)
+            typs_batch_all_clips.extend(typs_batch)
+            vies_batch_all_clips.extend(vies_batch)
+        
+        # Flatten: concatenate all clips
+        fras_batch_flat = []
+        for clip_idx in range(self.num_clips):
+            fras_batch_flat.extend(fras_batch_all_clips[clip_idx])
+        
+        batch = [fras_batch_flat, labs_batch_all_clips, typs_batch_all_clips, vies_batch_all_clips, None]
+        batch_size_flat = len(fras_batch_flat)
 
         if self.sampler == "fixed":
-            fras_batch = [[np.asarray(fras_batch[i][j]) for i in range(batch_size)]
+            fras_batch = [[np.asarray(fras_batch_flat[i][j]) for i in range(batch_size_flat)]
                           for j in range(feature_num)]  # [f, b]
         else:
-            seqL_batch = [[len(fras_batch[i][0])
-                           for i in range(batch_size)]]  # [1, p]
+            seqL_batch = [[len(fras_batch_flat[i][0])
+                           for i in range(batch_size_flat)]]  # [1, p]
 
             def my_cat(k): return np.concatenate(
-                [fras_batch[i][k] for i in range(batch_size)], 0)
+                [fras_batch_flat[i][k] for i in range(batch_size_flat)], 0)
             fras_batch = [[my_cat(k)] for k in range(feature_num)]  # [f, g]
 
             batch[-1] = np.asarray(seqL_batch)

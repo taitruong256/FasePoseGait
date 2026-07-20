@@ -1,11 +1,14 @@
 """Gait-recognition model using the pure-PyTorch ProtoGCN backbone."""
 import torch
 import torch.nn.functional as F
+import logging
 
 from ..base_model import BaseModel
 from ..backbones.protogcn_backbone import ProtoGCNBackbone
 from ..losses.class_specific_contrastive import ClassSpecificContrastiveLoss
 from utils import get_valid_args
+
+logger = logging.getLogger(__name__)
 
 
 class ProtoGCN(BaseModel):
@@ -64,12 +67,22 @@ class ProtoGCN(BaseModel):
     def forward(self, inputs):
         ipts, labels, _, views, seqL = inputs
         pose = ipts[0]
+        
+        if self.training:
+            logger.debug(f"[ProtoGCN.forward] Training mode, input shape: {pose.shape}, labels: {labels.shape}")
+        else:
+            logger.debug(f"[ProtoGCN.forward] Inference mode, input shape: {pose.shape}, labels: {labels.shape}")
+        
         pose = self._random_rotate(pose)
         n, c, t, v, m = pose.shape
+        logger.debug(f"[ProtoGCN.forward] After rotation: {pose.shape}")
+        
         if seqL is None:
             features, reconstructed_graph = self.backbone(
                 pose.permute(0, 4, 2, 3, 1).contiguous())
+            logger.debug(f"[ProtoGCN.forward] Backbone output - features: {features.shape}, reconstructed_graph: {reconstructed_graph.shape}")
             pooled_features = features.mean(dim=(1, 3, 4))
+            logger.debug(f"[ProtoGCN.forward] After global pooling: {pooled_features.shape}")
         else:
             lengths = seqL.reshape(-1).detach().cpu().tolist()
             if sum(lengths) != t:
@@ -86,8 +99,14 @@ class ProtoGCN(BaseModel):
                 start += length
             pooled_features = torch.cat(pooled, dim=0)
             reconstructed_graph = None
+            logger.debug(f"[ProtoGCN.forward] Packed sequence mode - pooled_features: {pooled_features.shape}")
+        
         cls_score = self.fc_cls(pooled_features)
+        logger.debug(f"[ProtoGCN.forward] Classifier output: {cls_score.shape}")
+        
         embeddings = F.normalize(self.embedding_proj(pooled_features), p=2, dim=1).unsqueeze(-1)
+        logger.debug(f"[ProtoGCN.forward] Embeddings: {embeddings.shape}")
+        
         if self.training:
             if reconstructed_graph is None:
                 raise ValueError('Packed sequences are only supported during inference.')
@@ -106,6 +125,7 @@ class ProtoGCN(BaseModel):
             # Evaluation must not update CSC's class-memory buffer.
             csc_loss = cls_score.new_zeros(())
             view_loss = cls_score.new_zeros(())
+        
         visual_summary = {}
         if self.log_pose:
             visual_summary['image/pose'] = (

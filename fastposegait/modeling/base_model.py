@@ -387,6 +387,8 @@ class BaseModel(MetaModel, nn.Module):
             Odict: contains the inference results.
         """
         total_size = len(self.test_loader)
+        num_clips = self.cfgs['evaluator_cfg']['sampler'].get('num_clips', 1)
+        
         if rank == 0:
             pbar = tqdm(total=total_size, desc='Transforming')
         else:
@@ -423,9 +425,24 @@ class BaseModel(MetaModel, nn.Module):
                 update_size = total_size % batch_size
             pbar.update(update_size)
         pbar.close()
+        
+        # Aggregate info_dict
         for k, v in info_dict.items():
-            v = np.concatenate(v)[:total_size]
+            v = np.concatenate(v)[:total_size * num_clips]
             info_dict[k] = v
+        
+        # Average multi-clip embeddings if num_clips > 1
+        if num_clips > 1 and 'embeddings' in info_dict:
+            self.msg_mgr.log_info(f"Aggregating {num_clips} clips per sequence")
+            embeddings = info_dict['embeddings']
+            # Reshape: (total_size * num_clips, ...) -> (total_size, num_clips, ...)
+            original_shape = embeddings.shape
+            embeddings_reshaped = embeddings.reshape(total_size, num_clips, *original_shape[1:])
+            # Average across clips
+            embeddings_avg = embeddings_reshaped.mean(axis=1)
+            info_dict['embeddings'] = embeddings_avg
+            self.msg_mgr.log_info(f"Embeddings aggregated: {original_shape} -> {embeddings_avg.shape}")
+        
         return info_dict
 
     @ staticmethod
@@ -483,6 +500,23 @@ class BaseModel(MetaModel, nn.Module):
             label_list = loader.dataset.label_list
             types_list = loader.dataset.types_list
             views_list = loader.dataset.views_list
+            
+            # Handle multi-clip: each original sample produces num_clips samples
+            num_clips = model.cfgs['evaluator_cfg']['sampler'].get('num_clips', 1)
+            if num_clips > 1:
+                model.msg_mgr.log_info(f"Mapping {num_clips} clips back to original sequences")
+                # Duplicate labels/types/views for each clip
+                label_list_expanded = []
+                types_list_expanded = []
+                views_list_expanded = []
+                for label, typ, view in zip(label_list, types_list, views_list):
+                    for _ in range(num_clips):
+                        label_list_expanded.append(label)
+                        types_list_expanded.append(typ)
+                        views_list_expanded.append(view)
+                label_list = label_list_expanded
+                types_list = types_list_expanded
+                views_list = views_list_expanded
 
             info_dict.update({
                 'labels': label_list, 'types': types_list, 'views': views_list})

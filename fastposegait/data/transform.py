@@ -1,6 +1,7 @@
 from data import transform as base_transform
 import numpy as np
 import math
+import random
 from math import atan2, degrees, radians, cos, sin
 from utils import is_list, is_dict, get_valid_args
 import torchvision.transforms as T
@@ -115,6 +116,82 @@ class AffineMat():
 class NoOperation():
     def __call__(self, x):
         return x
+
+
+class RandomRot_ProtoGCN(object):
+    """Random rotation matching ProtoGCN RandomRot - rotates 2D xy coordinates."""
+    def __init__(self, theta=0.2):
+        self.theta = theta
+    
+    def __call__(self, data):
+        """
+        Args:
+            data: (T, V, C) - T frames, V joints, C coordinates
+        """
+        if np.all(np.isclose(data, 0)):
+            return data
+        
+        # Apply same 2D rotation per sequence
+        rotation_angle = np.random.uniform(-self.theta, self.theta)
+        cos_a = np.cos(rotation_angle)
+        sin_a = np.sin(rotation_angle)
+        
+        # Rotate x, y coordinates
+        rotated = data.copy()
+        x = data[:, :, 0]
+        y = data[:, :, 1]
+        rotated[:, :, 0] = cos_a * x - sin_a * y
+        rotated[:, :, 1] = sin_a * x + cos_a * y
+        
+        return rotated
+
+
+class SpatialFlip_ProtoGCN(object):
+    """Left-right flip of skeletons matching ProtoGCN Spatial_Flip."""
+    def __init__(self, p=0.5):
+        self.p = p
+    
+    def __call__(self, data):
+        """
+        Args:
+            data: (T, V, C) - T frames, V joints, C coordinates
+        """
+        if np.random.random() < self.p:
+            # COCO-17 flip pairs: [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+            flip_pairs = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+            flipped = data[:, flip_pairs, :]
+            # Mirror x-coordinate
+            flipped[:, :, 0] = -flipped[:, :, 0]
+            return flipped
+        return data
+
+
+class PartDrop_ProtoGCN(object):
+    """Part drop matching ProtoGCN Part_Drop - drops limbs randomly."""
+    def __init__(self, p=0.2):
+        self.p = p
+    
+    def __call__(self, data):
+        """
+        Args:
+            data: (T, V, C) - T frames, V joints, C coordinates
+        """
+        if np.random.random() < self.p:
+            # COCO-17 joint ordering
+            left_hand = [4, 5, 6, 7]
+            left_leg = [11, 13, 15]
+            right_hand = [1, 2, 3]
+            right_leg = [8, 10, 12, 14]
+            
+            parts = [left_hand, left_leg, right_hand, right_leg]
+            part_idx = np.random.randint(0, 4)
+            
+            temp = data.copy()
+            for joint_idx in parts[part_idx]:
+                temp[:, joint_idx, :] = 0
+            
+            return temp
+        return data
 
 
 class RandomSelectSequence(object):

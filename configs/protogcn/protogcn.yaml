@@ -3,7 +3,7 @@ data_cfg:
   dataset_root: /home/HardDisk/Tai/CASIA-B_HRNet
   dataset_partition: ./datasets/CASIA-B/CASIA-B.json
   test_dataset_name: CASIA-B
-  num_workers: 1
+  num_workers: 4
   remove_no_gallery: false
   frame_threshold: 0
 
@@ -13,8 +13,7 @@ evaluator_cfg:
   restore_hint: 10000
   save_name: ProtoGCN
   eval_func: evaluate_indoor_dataset
-  # One 100-frame clip, sampled with ProtoGCN's UniformSampleDecode logic.
-  sampler: {batch_size: 1, sample_type: fixed_ordered, type: InferenceSampler, frames_num_fixed: 100, temporal_sampler: protogcn, temporal_test_mode: true}
+  sampler: {batch_size: 1, sample_type: fixed_ordered, type: InferenceSampler, frames_num_fixed: 100, temporal_sampler: protogcn, temporal_test_mode: true, num_clips: 10}
   metric: euc
   transform:
     - type: SkeletonInput
@@ -57,24 +56,22 @@ model_cfg:
     graph_cfg: {layout: coco, mode: random, num_filter: 8, init_off: 0.04, init_std: 0.02}
 
 optimizer_cfg: {lr: 0.025, momentum: 0.9, nesterov: true, solver: SGD, weight_decay: 0.0005}
-# Match the complete 10-epoch run (10 × batches per epoch).
 scheduler_cfg: {scheduler: CosineAnnealingLR, T_max: auto, eta_min: 0}
 
 trainer_cfg:
   enable_float16: false 
   cuda_deterministic: false
-  log_iter: 50
+  log_iter: 100
+  fix_BN: false
   with_test: true
   restore_ckpt_strict: false
   restore_hint: 0
-  save_iter: 500
-  save_name: ProtoGCN
-  # SyncBatchNorm has no benefit with --nproc_per_node=1.
+  save_iter: 2000
+  save_name: ProtoGCN_10stage_simulate
   sync_BN: false
-  total_epoch: 10
+  total_epoch: 200
   sampler:
     batch_shuffle: true
-    # Finite epoch sampler: every training sequence is used once per epoch.
     batch_size: 16
     frames_num_fixed: 100
     frames_num_max: 50
@@ -84,4 +81,14 @@ trainer_cfg:
     type: EpochBatchSampler
     temporal_sampler: protogcn
   transform:
-    - type: SkeletonInput
+    # There is one pose input modality.  Its augmentation pipeline must be a
+    # single transform (Compose), not four transforms for four modalities.
+    - type: Compose
+      trf_cfg:
+        - type: RandomRot_ProtoGCN
+          theta: 0.2
+        - type: SpatialFlip_ProtoGCN
+          p: 0.5
+        - type: PartDrop_ProtoGCN
+          p: 0.2
+        - type: SkeletonInput
