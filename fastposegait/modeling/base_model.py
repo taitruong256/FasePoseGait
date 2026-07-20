@@ -401,11 +401,19 @@ class BaseModel(MetaModel, nn.Module):
             with autocast(enabled=self.engine_cfg['enable_float16']):
                 retval = self.forward(ipts)
                 inference_feat = retval['inference_feat']
-                seqL = ipts[4]
-                
-                expected_per_rank = (
-                    seqL.numel() if seqL is not None
-                    else next(iter(inference_feat.values())).size(0))
+
+                if num_clips > 1:
+                    for k, v in inference_feat.items():
+                        if v.size(0) % num_clips != 0:
+                            raise RuntimeError(
+                                'Inference feature {} has {} clips, which is not '
+                                'divisible by num_clips={}.'.format(
+                                    k, v.size(0), num_clips))
+                        inference_feat[k] = v.reshape(
+                            num_clips, v.size(0) // num_clips, *v.shape[1:]
+                        ).mean(dim=0)
+
+                expected_per_rank = next(iter(inference_feat.values())).size(0)
                 for k, v in inference_feat.items():
                     inference_feat[k] = ddp_all_gather(v, requires_grad=False)
                     expected_size = expected_per_rank * torch.distributed.get_world_size()
@@ -428,20 +436,12 @@ class BaseModel(MetaModel, nn.Module):
         
         # Aggregate info_dict
         for k, v in info_dict.items():
-            v = np.concatenate(v)[:total_size * num_clips]
+            v = np.concatenate(v)[:total_size]
             info_dict[k] = v
-        
-        # Average multi-clip embeddings if num_clips > 1
-        if num_clips > 1 and 'embeddings' in info_dict:
-            self.msg_mgr.log_info(f"Aggregating {num_clips} clips per sequence")
-            embeddings = info_dict['embeddings']
-            # Reshape: (total_size * num_clips, ...) -> (total_size, num_clips, ...)
-            original_shape = embeddings.shape
-            embeddings_reshaped = embeddings.reshape(total_size, num_clips, *original_shape[1:])
-            # Average across clips
-            embeddings_avg = embeddings_reshaped.mean(axis=1)
-            info_dict['embeddings'] = embeddings_avg
-            self.msg_mgr.log_info(f"Embeddings aggregated: {original_shape} -> {embeddings_avg.shape}")
+
+        if num_clips > 1:
+            self.msg_mgr.log_info(
+                f"Aggregated {num_clips} clips per sequence during inference")
         
         return info_dict
 
@@ -501,23 +501,6 @@ class BaseModel(MetaModel, nn.Module):
             types_list = loader.dataset.types_list
             views_list = loader.dataset.views_list
             
-            # Handle multi-clip: each original sample produces num_clips samples
-            num_clips = model.cfgs['evaluator_cfg']['sampler'].get('num_clips', 1)
-            if num_clips > 1:
-                model.msg_mgr.log_info(f"Mapping {num_clips} clips back to original sequences")
-                # Duplicate labels/types/views for each clip
-                label_list_expanded = []
-                types_list_expanded = []
-                views_list_expanded = []
-                for label, typ, view in zip(label_list, types_list, views_list):
-                    for _ in range(num_clips):
-                        label_list_expanded.append(label)
-                        types_list_expanded.append(typ)
-                        views_list_expanded.append(view)
-                label_list = label_list_expanded
-                types_list = types_list_expanded
-                views_list = views_list_expanded
-
             info_dict.update({
                 'labels': label_list, 'types': types_list, 'views': views_list})
 
